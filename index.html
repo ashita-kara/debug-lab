@@ -1,1 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>デバッグ版・配達ボイスメモ</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
+        .btn { width: 100%; height: 60px; border-radius: 30px; font-size: 18px; font-weight: bold; margin-bottom: 10px; border: none; }
+        .btn-start { background: #007bff; color: white; }
+        .btn-stop { background: #dc3545; color: white; display: none; }
+        #status { background: #fff; padding: 15px; border-radius: 8px; min-height: 50px; margin-bottom: 10px; border: 1px solid #ddd; }
+        #log { font-size: 0.8em; color: #d9534f; margin-bottom: 10px; white-space: pre-wrap; }
+        .card { background: white; padding: 15px; border-radius: 12px; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .res { color: #d9534f; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <button id="start-btn" class="btn btn-start">🎤 録音開始</button>
+    <button id="stop-btn" class="btn btn-stop">⏹ 停止して計算</button>
+    <div id="log"></div>
+    <div id="status">ここに聞き取った内容が表示されます</div>
+    <div id="history"></div>
+
+<script>
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const statusDiv = document.getElementById('status');
+    const logDiv = document.getElementById('log');
+    const historyDiv = document.getElementById('history');
+    let recognition;
+
+    startBtn.onclick = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { logDiv.innerText = "未対応ブラウザです"; return; }
+        
+        recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.interimResults = true;
+        recognition.continuous = true;
+
+        recognition.onstart = () => {
+            startBtn.style.display = 'none';
+            stopBtn.style.display = 'block';
+            statusDiv.innerText = "聴き取り中...";
+        };
+
+        recognition.onresult = (event) => {
+            let text = "";
+            for (let i = 0; i < event.results.length; i++) { text += event.results[i][0].transcript; }
+            statusDiv.innerText = text;
+        };
+
+        recognition.onend = () => { process(statusDiv.innerText); reset(); };
+        recognition.onerror = (e) => { logDiv.innerText = "エラー: " + e.error; reset(); };
+        recognition.start();
+    };
+
+    stopBtn.onclick = () => { if (recognition) recognition.stop(); };
+
+    function reset() { startBtn.style.display = 'block'; stopBtn.style.display = 'none'; }
+
+    function process(text) {
+        if (!text || text === "聴き取り中...") return;
+        const amount = text.match(/(\d+)円/)?.[1];
+        const mins = text.match(/(\d+)分/)?.[1];
+        const kms = text.match(/(\d+(?:\.\d+)?)k?m/)?.[1];
+
+        let res = `<div>${text}</div>`;
+        if (amount) {
+            if (mins) {
+                const pMin = (amount / mins).toFixed(1);
+                res += `<div class="res">💰 ${pMin}円/分 (${Math.round(pMin * 60)}円/時)</div>`;
+            }
+            if (kms) res += `<div class="res">📍 ${(amount / kms).toFixed(1)}円/km</div>`;
+        }
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = res;
+        historyDiv.prepend(card);
+    }
+</script>
+</body>
+</html>
 
