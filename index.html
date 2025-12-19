@@ -3,42 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>デバッグ版・配達ボイスメモ</title>
+    <title>配達ボイスメモ（修正版）</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
-        .btn { width: 100%; height: 60px; border-radius: 30px; font-size: 18px; font-weight: bold; margin-bottom: 10px; border: none; }
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; color: #333; }
+        .btn { width: 100%; height: 65px; border-radius: 35px; font-size: 20px; font-weight: bold; margin-bottom: 15px; border: none; box-shadow: 0 4px 10px rgba(0,0,0,0.15); transition: 0.2s; }
         .btn-start { background: #007bff; color: white; }
         .btn-stop { background: #dc3545; color: white; display: none; }
-        #status { background: #fff; padding: 15px; border-radius: 8px; min-height: 50px; margin-bottom: 10px; border: 1px solid #ddd; }
-        #log { font-size: 0.8em; color: #d9534f; margin-bottom: 10px; white-space: pre-wrap; }
-        .card { background: white; padding: 15px; border-radius: 12px; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        .res { color: #d9534f; font-weight: bold; }
+        #status { background: #fff; padding: 15px; border-radius: 12px; min-height: 40px; margin-bottom: 15px; border: 1px solid #ddd; font-size: 1.1em; }
+        .card { background: white; padding: 18px; border-radius: 15px; margin-top: 12px; box-shadow: 0 3px 8px rgba(0,0,0,0.08); animation: slideIn 0.3s ease-out; }
+        .res-line { margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; }
+        .res-val { color: #d9534f; font-weight: bold; font-size: 1.2em; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
     <button id="start-btn" class="btn btn-start">🎤 録音開始</button>
     <button id="stop-btn" class="btn btn-stop">⏹ 停止して計算</button>
-    <div id="log"></div>
-    <div id="status">ここに聞き取った内容が表示されます</div>
+    <div id="status">待機中...</div>
     <div id="history"></div>
 
 <script>
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
     const statusDiv = document.getElementById('status');
-    const logDiv = document.getElementById('log');
     const historyDiv = document.getElementById('history');
     let recognition;
+    let finalResult = ""; // 確定したテキストを保持
 
     startBtn.onclick = () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) { logDiv.innerText = "未対応ブラウザです"; return; }
+        if (!SpeechRecognition) { alert("未対応のブラウザです"); return; }
         
         recognition = new SpeechRecognition();
         recognition.lang = 'ja-JP';
-        recognition.interimResults = true;
-        recognition.continuous = true;
+        recognition.interimResults = true; // 途中経過を取得
+        recognition.continuous = true;    // 連続認識
 
+        finalResult = ""; // リセット
+        
         recognition.onstart = () => {
             startBtn.style.display = 'none';
             stopBtn.style.display = 'block';
@@ -46,40 +48,69 @@
         };
 
         recognition.onresult = (event) => {
-            let text = "";
-            for (let i = 0; i < event.results.length; i++) { text += event.results[i][0].transcript; }
-            statusDiv.innerText = text;
+            let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalResult += transcript; // 確定した部分だけを繋げる
+                } else {
+                    interimTranscript = transcript; // まだ確定していない予測部分
+                }
+            }
+            // 表示は「確定済み＋予測」を出すが、重複しないように制御
+            statusDiv.innerText = finalResult + interimTranscript;
         };
 
-        recognition.onend = () => { process(statusDiv.innerText); reset(); };
-        recognition.onerror = (e) => { logDiv.innerText = "エラー: " + e.error; reset(); };
+        recognition.onend = () => {
+            // 最終的に表示されているテキストを使って計算
+            process(statusDiv.innerText);
+            resetUI();
+        };
+
+        recognition.onerror = () => { resetUI(); };
         recognition.start();
     };
 
     stopBtn.onclick = () => { if (recognition) recognition.stop(); };
 
-    function reset() { startBtn.style.display = 'block'; stopBtn.style.display = 'none'; }
+    function resetUI() {
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+    }
 
     function process(text) {
-        if (!text || text === "聴き取り中...") return;
+        if (!text || text === "聴き取り中..." || text === "待機中...") return;
+
+        // 正規表現で最初の数値だけを拾う（重複していても最初の1つだけを使う）
         const amount = text.match(/(\d+)円/)?.[1];
         const mins = text.match(/(\d+)分/)?.[1];
         const kms = text.match(/(\d+(?:\.\d+)?)k?m/)?.[1];
 
-        let res = `<div>${text}</div>`;
+        let resHtml = `<div style="color:#666; font-size:0.9em;">${text}</div>`;
+        let results = [];
+
         if (amount) {
             if (mins) {
                 const pMin = (amount / mins).toFixed(1);
-                res += `<div class="res">💰 ${pMin}円/分 (${Math.round(pMin * 60)}円/時)</div>`;
+                const pHour = Math.round(pMin * 60).toLocaleString();
+                results.push(`<div class="res-line">💰 <span class="res-val">${pMin}円/分</span> (${pHour}円/時)</div>`);
             }
-            if (kms) res += `<div class="res">📍 ${(amount / kms).toFixed(1)}円/km</div>`;
+            if (kms) {
+                const pKm = (amount / kms).toFixed(1);
+                results.push(`<div class="res-line">📍 <span class="res-val">${pKm}円/km</span></div>`);
+            }
         }
+
+        if (results.length === 0 && !amount && !mins && !kms) {
+            results.push(`<div class="res-line">📝 メモとして保存</div>`);
+        }
+
         const card = document.createElement('div');
         card.className = 'card';
-        card.innerHTML = res;
+        card.innerHTML = resHtml + results.join('');
         historyDiv.prepend(card);
+        statusDiv.innerText = "待機中...";
     }
 </script>
 </body>
 </html>
-
